@@ -73,6 +73,17 @@ git diff --exit-code -- '*.mbti'
 After editing code, run `moon fmt` and `moon info --target all`, then commit the
 updated sources and any intentional changes to `pkg.generated.mbti`.
 
+## Publish
+
+Update `version` in `moon.mod` to an unpublished version and merge the change.
+In GitHub Actions, select **publish-package**, choose **Run workflow**, and select
+the branch to publish (normally `main`). The workflow runs the existing checks
+and tests, publishes to Mooncakes, then tags the published commit as `v<version>`.
+
+The repository must have access to the organization secret
+`MOONCAKES_MOONBIT_COMMUNITY_TOKEN`. The workflow uses the version in `moon.mod`;
+it does not bump the version automatically.
+
 ## License
 
 [Apache-2.0](LICENSE).
