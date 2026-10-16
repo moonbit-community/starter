@@ -1,0 +1,85 @@
+name: publish-package
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: publish-package
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      published_tag: ${{ steps.prepublish.outputs.published_tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Install MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: Toolchain version
+        run: moon version --all
+
+      - name: Prepublish check
+        id: prepublish
+        run: |
+          moon fmt --check
+          moon check --target all --deny-warn
+          moon test --target all --deny-warn
+          moon info --target all
+          git diff --exit-code
+          test -z "$(git ls-files --others --exclude-standard -- '*.mbti')"
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' moon.mod)"
+          if [[ -z "$version" ]]; then
+            echo "Could not read package version from moon.mod" >&2
+            exit 1
+          fi
+          echo "published_tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Publish
+        env:
+          SECRET: ${{ secrets.MOONCAKES_MOONBIT_COMMUNITY_TOKEN }}
+        run: |
+          if [[ -z "$SECRET" ]]; then
+            echo "MOONCAKES_MOONBIT_COMMUNITY_TOKEN is not available to this repository." >&2
+            exit 1
+          fi
+          credentials="$HOME/.moon/credentials.json"
+          trap 'rm -f "$credentials"' EXIT
+          (umask 077; printf '%s\n' "$SECRET" > "$credentials")
+          moon publish
+
+  tag:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Tag published commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISHED_TAG: ${{ needs.publish.outputs.published_tag }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f ref="refs/tags/$PUBLISHED_TAG" \
+            -f sha="$GITHUB_SHA"
