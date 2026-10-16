@@ -2,50 +2,53 @@ name: check
 
 on:
   push:
-    branches:
-      - master
-      - main
+    branches: [main]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   check:
-    strategy:
-      fail-fast: false
     runs-on: ubuntu-latest
-    continue-on-error: false
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          submodules: 'recursive'
+          persist-credentials: false
 
-      - name: install
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Install MoonBit
         run: |
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
-          echo "$HOME/.moon/bin" >> $GITHUB_PATH
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
 
-      - name: moon version
-        run: |
-          moon version --all
+      - name: Toolchain version
+        run: moon version --all
 
-      - name: moon check
-        run: |
-          moon update
-          moon check --deny-warn
+      - name: Check formatting
+        run: moon fmt --check
 
-      - name: moon info
+      - name: Check all backends
+        run: moon check --target all --deny-warn
+
+      - name: Check public interfaces
         run: |
           moon info --target all
           git diff --exit-code
+          test -z "$(git ls-files --others --exclude-standard -- '*.mbti')"
 
-      - name: format diff
-        run: |
-          moon fmt
-          git diff --exit-code
-
-      - name: Set ulimit
-        run: |
-          ulimit -s 8176
-
-      - name: moon test
-        run: |
-          moon test --target all
+      - name: Test all backends
+        run: moon test --target all --deny-warn
